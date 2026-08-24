@@ -1,36 +1,66 @@
-﻿import os
+import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
-
+# Load .env
 BASE_DIR = Path(__file__).resolve().parent.parent
-
-# Database
-DB_PATH = os.getenv("DB_PATH", str(BASE_DIR / "database" / "shopee_matrix.db"))
+load_dotenv(BASE_DIR / ".env")
 
 # API Keys
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
-# Box Phone Settings
-MIN_POST_INTERVAL_MINUTES = int(os.getenv("MIN_POST_INTERVAL_MINUTES", "15"))
-MAX_POST_INTERVAL_MINUTES = int(os.getenv("MAX_POST_INTERVAL_MINUTES", "20"))
-DAILY_POST_LIMIT_PER_DEVICE = int(os.getenv("DAILY_POST_LIMIT_PER_DEVICE", "50"))
-
-# Server Config
-SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
-SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))
-
-# Asset Directories
+# Paths
+DATABASE_PATH = BASE_DIR / "database" / "shopee_automation.db"
 OUTPUT_DIR = BASE_DIR / "output"
-ASSETS_DIR = BASE_DIR / "assets"
-KOL_FACES_DIR = ASSETS_DIR / "kol_faces"
-BGM_DIR = ASSETS_DIR / "bgm"
-BACKGROUNDS_DIR = ASSETS_DIR / "backgrounds"
+TEMP_DIR = BASE_DIR / "output" / "temp"
+VIDEOS_DIR = BASE_DIR / "output" / "rendered_videos"
+CLEANED_IMAGES_DIR = BASE_DIR / "output" / "cleaned_images"
+KOLS_CONFIG_PATH = BASE_DIR / "config" / "kols_config.json"
 
+# Make sure directories exist
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-KOL_FACES_DIR.mkdir(parents=True, exist_ok=True)
-BGM_DIR.mkdir(parents=True, exist_ok=True)
-BACKGROUNDS_DIR.mkdir(parents=True, exist_ok=True)
+TEMP_DIR.mkdir(parents=True, exist_ok=True)
+VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
+CLEANED_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+
+# Crawler Settings (Bước 1)
+CRAWLER_CONFIG = {
+    "default_keywords": [
+        "đồ gia dụng thông minh",
+        "tai nghe bluetooth",
+        "ốp lưng iphone",
+        "bàn chải điện",
+        "máy cạo râu",
+        "đèn bàn học",
+        "sạc dự phòng",
+        "kệ để đồ đa năng",
+        "nồi chiên không dầu",
+        "bình giữ nhiệt"
+    ],
+    "min_sold": 20,           # Lọc tối thiểu 20 lượt bán
+    "min_rating": 4.5,        # Đánh giá tối thiểu 4.5 sao
+    "min_images": 2,          # Tối thiểu 2 ảnh HD
+    "limit_per_keyword": 10,  # Số sản phẩm lấy cho mỗi từ khóa
+    "request_timeout": 15,
+    "delay_between_requests": 2.0  # Giây để tránh spam API
+}
+
+# Video Render Settings
+VIDEO_CONFIG = {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "duration_per_image": 3.5,  # Giây cho mỗi ảnh
+    "zoom_factor": 1.15         # Ken-Burns Zoom
+}
+
+# Farm Posting Limits
+FARM_CONFIG = {
+    "max_posts_per_day_per_device": 50,
+    "post_interval_min_minutes": 15,
+    "post_interval_max_minutes": 20,
+    "adb_host": os.getenv("ADB_SERVER_HOST", "127.0.0.1"),
+    "adb_port": int(os.getenv("ADB_SERVER_PORT", "5037"))
+}
