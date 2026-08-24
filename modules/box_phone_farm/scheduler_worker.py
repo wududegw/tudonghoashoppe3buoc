@@ -1,103 +1,84 @@
-﻿import os
 import time
 import random
-import threading
-from pathlib import Path
-from datetime import datetime, date
-from config.settings import (
-    MIN_POST_INTERVAL_MINUTES, MAX_POST_INTERVAL_MINUTES, 
-    DAILY_POST_LIMIT_PER_DEVICE, OUTPUT_DIR
-)
-from database.db_manager import db
+from typing import Dict, Any
+from loguru import logger
+
+from config.settings import FARM_CONFIG
+from database.db_manager import DatabaseManager
 from modules.box_phone_farm.adb_manager import ADBManager
 from modules.box_phone_farm.shopee_automator import ShopeeAutomator
-from utils.notifier import send_telegram_alert
+from utils.notifier import TelegramNotifier
 
-class DeviceWorkerThread(threading.Thread):
-    def __init__(self, device_id: str, kol_channel: str, kol_name: str, daily_limit: int = DAILY_POST_LIMIT_PER_DEVICE):
-        super().__init__(daemon=True)
-        self.device_id = device_id
-        self.kol_channel = kol_channel
-        self.kol_name = kol_name
-        self.daily_limit = daily_limit
+class SchedulerWorker:
+    """Điều phối vòng lặp đăng bài tự động trên Box Phone Farm."""
+
+    def __init__(self, db_manager: DatabaseManager = None, notifier: TelegramNotifier = None):
+        self.db = db_manager or DatabaseManager()
         self.adb = ADBManager()
-        self.automator = ShopeeAutomator(device_id)
-        self.is_running = True
+        self.notifier = notifier or TelegramNotifier()
 
-    def run(self):
-        print(f"🟢 [Worker {self.kol_name}] Bắt đầu tiến trình quản lý máy {self.device_id}...")
-        
-        while self.is_running:
-            try:
-                # 1. Kiểm tra hạn mức 50 video/ngày
-                daily_count = db.get_device_daily_posted_count(self.device_id)
-                if daily_count >= self.daily_limit:
-                    print(f"🏆 [Worker {self.kol_name}] Đã đạt mốc tối đa {daily_count}/{self.daily_limit} video hôm nay! Tạm nghỉ...")
-                    time.sleep(1800) # Đợi 30 phút kiểm tra lại (qua ngày mới tự reset)
-                    continue
+    def process_one_video(self, video_item: Dict[str, Any], device_id: str) -> bool:
+        """Xử lý quy trình đăng 1 video hoàn chỉnh cho 1 thiết bị."""
+        product_id = video_item["product_id"]
+        kol_id = video_item["kol_id"]
+        video_path = video_item["video_path"]
+        caption = video_item["caption"]
 
-                # 2. Lấy công việc tiếp theo từ hàng đợi
-                job = db.get_next_job_for_device(self.device_id)
-                if not job:
-                    # Chưa có video render sẵn, đợi 30s check lại
-                    time.sleep(30)
-                    continue
+        # Kiểm tra hạn mức ngày
+        if not self.db.can_device_post_today(device_id, FARM_CONFIG["max_posts_per_day_per_device"]):
+            logger.warning(f"⚠️ Thiết bị {device_id} đã đạt giới hạn đăng {FARM_CONFIG['max_posts_per_day_per_device']} video/ngày!")
+            return False
 
-                print(f"📥 [Worker {self.kol_name}] Nhận job: {job['title']} (ID: {job['item_id']})")
-                
-                # 3. Chuẩn bị đường dẫn video và screenshot
-                video_file = job["video_path"]
-                screen_shot_file = str(OUTPUT_DIR / f"success_{self.device_id.replace(':', '_')}_{job['item_id']}.png")
-                remote_dest = "/sdcard/DCIM/Camera/temp_post.mp4"
+        logger.info(f"🔄 Bắt đầu đăng video cho SP #{product_id} trên {device_id}")
 
-                # 4. Thực hiện chu trình Đăng & Gắn Link
-                try:
-                    # Nạp video vào máy
-                    pushed = self.adb.push_video(self.device_id, video_file, remote_dest)
-                    if not pushed:
-                        raise Exception("Không thể push video sang Box Phone qua ADB")
+        # 1. Đẩy video vào máy
+        remote_path = self.adb.push_video(device_id, video_path)
+        if not remote_path:
+            return False
 
-                    # Thực hiện đăng bài và gắn thẻ
-                    self.automator.post_video_with_product_link(
-                        product_url=job["product_url"],
-                        caption_text=job["caption"],
-                        screenshot_path=screen_shot_file
-                    )
+        # 2. Thao tác đăng
+        automator = ShopeeAutomator(device_id)
+        success = automator.post_video(video_item)
 
-                    # Ghi nhận vào DB
-                    db.record_posted(
-                        item_id=job["item_id"],
-                        shop_id="",
-                        kol_channel=self.kol_channel,
-                        device_id=self.device_id,
-                        video_path=video_file,
-                        caption=job["caption"]
-                    )
-                    db.update_queue_status(job["id"], "POSTED")
+        # 3. Dọn dẹp video trên máy để tránh đầy bộ nhớ
+        self.adb.cleanup_video(device_id, remote_path)
 
-                    # Cập nhật số đếm mới
-                    new_count = db.get_device_daily_posted_count(self.device_id)
-                    success_msg = f"🎉 [Kênh {self.kol_name}] Đã đăng video thành công ({new_count}/{self.daily_limit})\n📦 SP: {job['title']}\n🔗 Link: {job['product_url']}"
-                    send_telegram_alert(success_msg, photo_path=screen_shot_file)
+        if success:
+            # Ghi nhận kết quả
+            self.db.increment_device_post(device_id, product_id, kol_id, video_path, caption)
+            self.db.update_video_queue(video_item["id"], video_path, status="posted")
 
-                except Exception as e:
-                    print(f"❌ [Worker {self.kol_name}] Lỗi khi đăng: {e}")
-                    db.update_queue_status(job["id"], "FAILED", error_msg=str(e))
-                    send_telegram_alert(f"⚠️ [Kênh {self.kol_name}] Lỗi đăng video SP {job['item_id']}: {e}")
+            # Gửi thông báo Telegram
+            self.notifier.send_message(
+                f"✅ <b>ĐÃ ĐĂNG SHOPEE VIDEO</b>\n"
+                f"• SP: {video_item.get('product_title')}\n"
+                f"• KOL: {kol_id} | Máy: {device_id}\n"
+                f"• Caption: {caption}"
+            )
+            return True
+        else:
+            self.db.update_video_queue(video_item["id"], video_path, status="error", error_message="Lỗi auto-post")
+            return False
 
-                finally:
-                    # ==========================================================
-                    # BƯỚC QUAN TRỌNG NHẤT: XÓA SẠCH VIDEO TRÊN MÁY VÀ SERVER
-                    # ==========================================================
-                    self.adb.cleanup_video(self.device_id, remote_dest)
-                    if os.path.exists(video_file):
-                        os.remove(video_file)
+    def run_worker_loop(self):
+        """Chạy vòng lặp kiểm tra hàng đợi và đăng cách quãng 15-20 phút."""
+        logger.info("⚡ Khởi động Box Phone Farm Scheduler Worker...")
 
-                # 5. Nghỉ ngẫu nhiên 15 - 20 phút trước khi sang lượt tiếp theo
-                sleep_min = random.randint(MIN_POST_INTERVAL_MINUTES, MAX_POST_INTERVAL_MINUTES)
-                print(f"☕ [Worker {self.kol_name}] Nghỉ {sleep_min} phút trước lượt tiếp theo...")
-                time.sleep(sleep_min * 60)
+        while True:
+            ready_videos = self.db.get_ready_to_post_videos(limit=5)
+            if not ready_videos:
+                logger.info("⏳ Hàng đợi đăng bài đang trống. Chờ quét và render video mới...")
+                time.sleep(30)
+                continue
 
-            except Exception as outer_e:
-                print(f"[Worker {self.kol_name}] Lỗi ngoại lệ vòng lặp: {outer_e}")
-                time.sleep(60)
+            for video in ready_videos:
+                device_id = FARM_CONFIG.get("adb_device_id", "emulator-5554")
+                self.process_one_video(video, device_id)
+
+                # Nghỉ ngẫu nhiên 15 - 20 phút giữa các lần đăng
+                wait_minutes = random.uniform(
+                    FARM_CONFIG["post_interval_min_minutes"],
+                    FARM_CONFIG["post_interval_max_minutes"]
+                )
+                logger.info(f"😴 Nghỉ {wait_minutes:.1f} phút trước khi đăng video tiếp theo...")
+                time.sleep(wait_minutes * 60)
