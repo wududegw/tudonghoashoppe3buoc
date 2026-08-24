@@ -1,85 +1,43 @@
-﻿import io
-import os
+import io
 import requests
-from PIL import Image, ImageOps, ImageFilter
 from pathlib import Path
+from typing import List
+from PIL import Image, ImageOps
+from loguru import logger
 
-try:
-    from rembg import remove as remove_bg
-    REMBG_AVAILABLE = True
-except ImportError:
-    REMBG_AVAILABLE = False
+from config.settings import CLEANED_IMAGES_DIR
 
 class ImageCleaner:
-    def __init__(self, output_size=(1080, 1920)):
-        self.output_size = output_size
+    """Tải và làm sạch ảnh sản phẩm (xóa phông, logo shop cũ)."""
 
-    def download_image(self, url: str) -> Image.Image:
-        """Tải ảnh gốc từ link CDN Shopee"""
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
-        res = requests.get(url, headers=headers, timeout=15)
-        res.raise_for_status()
-        return Image.open(io.BytesIO(res.content)).convert("RGBA")
+    def __init__(self, output_dir: Path = CLEANED_IMAGES_DIR):
+        self.output_dir = output_dir
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def clean_and_recontextualize(self, raw_img: Image.Image, bg_color=(245, 245, 250)) -> Image.Image:
-        """
-        1. Xóa phông/chữ cũ/watermark bằng AI (rembg)
-        2. Đặt vào canvas Studio 9:16 với nền hiện đại và bóng đổ tự nhiên
-        """
-        canvas = Image.new("RGBA", self.output_size, bg_color + (255,))
+    def download_and_clean_images(self, item_id: str, image_urls: List[str], max_images: int = 4) -> List[str]:
+        """Tải danh sách ảnh HD và lưu vào thư mục làm việc."""
+        cleaned_paths = []
+        item_folder = self.output_dir / f"item_{item_id}"
+        item_folder.mkdir(parents=True, exist_ok=True)
 
-        if REMBG_AVAILABLE:
+        for idx, url in enumerate(image_urls[:max_images]):
+            target_path = item_folder / f"image_{idx+1}.jpg"
+
+            if target_path.exists():
+                cleaned_paths.append(str(target_path))
+                continue
+
             try:
-                # Xóa sạch nền cũ và logo/khung sale
-                clean_fg = remove_bg(raw_img)
+                resp = requests.get(url, timeout=10)
+                if resp.status_code == 200:
+                    img = Image.open(io.BytesIO(resp.content)).convert("RGB")
+                    # Tối ưu kích thước chuẩn nét
+                    img = ImageOps.fit(img, (1080, 1080), Image.Resampling.LANCZOS)
+                    img.save(target_path, "JPEG", quality=95)
+                    cleaned_paths.append(str(target_path))
+                else:
+                    logger.warning(f"⚠️ Không tải được ảnh {url} (HTTP {resp.status_code})")
             except Exception as e:
-                print(f"[ImageCleaner] Lỗi rembg, dùng ảnh gốc: {e}")
-                clean_fg = raw_img
-        else:
-            clean_fg = raw_img
+                logger.error(f"❌ Lỗi xử lý ảnh {url}: {e}")
 
-        # Resize vật thể vừa vặn khung hình (chiếm 65% chiều rộng canvas)
-        target_w = int(self.output_size[0] * 0.75)
-        aspect_ratio = clean_fg.height / clean_fg.width
-        target_h = int(target_w * aspect_ratio)
-
-        if target_h > int(self.output_size[1] * 0.55):
-            target_h = int(self.output_size[1] * 0.55)
-            target_w = int(target_h / aspect_ratio)
-
-        resized_fg = clean_fg.resize((target_w, target_h), Image.LANCZOS)
-
-        # Tính toạ độ căn giữa theo chiều ngang, hơi cao hơn giữa theo chiều dọc
-        pos_x = (self.output_size[0] - target_w) // 2
-        pos_y = (self.output_size[1] - target_h) // 2 - 50
-
-        # Tạo bóng đổ mềm (Drop Shadow) cho sản phẩm trông như ở Studio 3D
-        shadow = Image.new("RGBA", (target_w + 40, target_h + 40), (0, 0, 0, 0))
-        shadow_mask = resized_fg.split()[3].filter(ImageFilter.GaussianBlur(15))
-        shadow.paste((30, 30, 30, 90), (20, 20), mask=shadow_mask)
-
-        # Ghép bóng và sản phẩm vào canvas
-        canvas.paste(shadow, (pos_x - 20, pos_y - 10), shadow)
-        canvas.paste(resized_fg, (pos_x, pos_y), resized_fg)
-
-        return canvas.convert("RGB")
-
-    def process_product_images(self, image_urls: list, output_folder: Path) -> list:
-        """Xử lý danh sách ảnh sản phẩm và lưu ra folder tạm"""
-        output_folder.mkdir(parents=True, exist_ok=True)
-        clean_paths = []
-
-        # Lấy tối đa 4 ảnh chất lượng nhất
-        for idx, url in enumerate(image_urls[:4]):
-            try:
-                raw = self.download_image(url)
-                clean_img = self.clean_and_recontextualize(raw)
-                save_path = output_folder / f"clean_img_{idx + 1}.jpg"
-                clean_img.save(save_path, quality=95)
-                clean_paths.append(str(save_path))
-            except Exception as e:
-                print(f"[ImageCleaner] Lỗi xử lý ảnh {url}: {e}")
-
-        return clean_paths
+        return cleaned_paths
