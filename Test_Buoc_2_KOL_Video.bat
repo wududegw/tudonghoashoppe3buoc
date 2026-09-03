@@ -1,8 +1,8 @@
 @echo off
-title Shopee Product Crawler - BUOC 1 DASHBOARD
+title Test Buoc 2 - KOL Script, Voice, Render MP4 Video
 cls
 echo ===================================================================
-echo   SHOPEE PRODUCT CRAWLER DASHBOARD (BUOC 1)
+echo   [BUOC 2] KIEM THU DUNG VIDEO REVIEW 9:16 VOI KOL (MP4)
 echo ===================================================================
 echo.
 
@@ -35,14 +35,18 @@ if exist "C:\Python311\python.exe" (
 
 :not_found
 echo [!] KHONG TIM THAY PYTHON TREN MAY!
-echo [*] Vui long cai dat Python de chay Dashboard.
+echo [*] Vui long cai dat Python 3.10 hoac 3.11 de chay du an.
 echo.
 pause
 exit /b 1
 
 :found_python
 echo [*] Tim thay Python: %PY_CMD%
-echo [*] Dang khoi dong Dashboard Web tai: http://localhost:8888
+echo [*] Dang chay test_step2_kol_video.py...
 echo.
-"%PY_CMD%" run_step1_ui.py
+"%PY_CMD%" test_step2_kol_video.py
+echo.
+echo ===================================================================
+echo   HOAN TAT KIEM THU BUOC 2
+echo ===================================================================
 pause

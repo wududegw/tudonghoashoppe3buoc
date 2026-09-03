@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Shopee Shop Watcher & AI Video Automation</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            width: 780px;
+            height: 570px;
+            background-color: #0f1117;
+            color: #e1e7ec;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        /* Header */
+        header {
+            background-color: #181b24;
+            border-bottom: 1px solid #2d3446;
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            user-select: none;
+        }
+        .logo-box {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #ee4d2d, #ff7337);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 16px;
+        }
+        .logo-title {
+            font-size: 13px;
+            font-weight: bold;
+            color: #fff;
+            text-transform: uppercase;
+        }
+        .badge-step {
+            background: rgba(0, 229, 255, 0.15);
+            color: #00e5ff;
+            border: 1px solid rgba(0, 229, 255, 0.3);
+            border-radius: 4px;
+            padding: 1px 6px;
+            font-size: 9px;
+            font-family: monospace;
+            margin-left: 6px;
+        }
+        .tabs {
+            display: flex;
+            gap: 6px;
+        }
+        .tab-btn {
+            background: transparent;
+            border: none;
+            color: #8a94a6;
+            padding: 6px 14px;
+            font-size: 12px;
+            font-weight: 600;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .tab-btn:hover {
+            color: #fff;
+            background: #202532;
+        }
+        .tab-btn.active {
+            color: #00e5ff;
+            background: #202532;
+            border-bottom: 2px solid #00e5ff;
+        }
+
+        /* Content */
+        main {
+            flex: 1;
+            overflow: hidden;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+        }
+        .tab-content {
+            display: none;
+            flex: 1;
+            overflow: hidden;
+        }
+        .tab-content.active {
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Tab 1: Cài đặt & Theo dõi Shop */
+        .settings-card {
+            background: #181b24;
+            border: 1px solid #2d3446;
+            border-radius: 10px;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            overflow-y: auto;
+        }
+        .section-box {
+            background: #12141c;
+            border: 1px solid #2d3446;
+            border-radius: 8px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .section-header {
+            font-size: 12px;
+            font-weight: bold;
+            color: #00e5ff;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .shop-pill-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 4px;
+        }
+        .shop-pill {
+            background: #202532;
+            border: 1px solid #3b445a;
+            color: #e1e7ec;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-scan-main {
+            background: linear-gradient(135deg, #ee4d2d, #ff5722);
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            box-shadow: 0 4px 15px rgba(238, 77, 45, 0.4);
+            transition: transform 0.1s;
+        }
+        .btn-scan-main:active {
+            transform: scale(0.98);
+        }
+        .log-box {
+            background: #0b0d13;
+            border: 1px solid #2d3446;
+            border-radius: 8px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 11px;
+            color: #38ef7d;
+            height: 100px;
+            overflow-y: auto;
+        }
+
+        /* Tab 2: Table */
+        .table-container {
+            background: #181b24;
+            border: 1px solid #2d3446;
+            border-radius: 10px;
+            flex: 1;
+            overflow: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 11px;
+        }
+        thead {
+            background: #151720;
+            color: #8a94a6;
+            text-transform: uppercase;
+            font-size: 10px;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            border-bottom: 1px solid #2d3446;
+        }
+        th, td {
+            padding: 8px 12px;
+        }
+        th.col-shop { color: #00e5ff; width: 170px; }
+        th.col-img { text-align: center; width: 60px; }
+        th.col-title { min-width: 220px; }
+        th.col-price { text-align: right; width: 90px; }
+        th.col-sold { text-align: center; width: 70px; }
+        th.col-date { text-align: center; width: 130px; }
+        tbody tr {
+            border-bottom: 1px solid #1f2533;
+            transition: background-color 0.15s;
+        }
+        tbody tr:hover {
+            background-color: #1a1e29;
+        }
+        .td-shop {
+            color: #00e5ff;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 170px;
+        }
+        .td-img img {
+            width: 40px;
+            height: 40px;
+            object-fit: cover;
+            border-radius: 4px;
+            border: 1px solid #2d3446;
+            display: block;
+            margin: 0 auto;
+        }
+        .td-title a {
+            color: #e1e7ec;
+            text-decoration: none;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            line-height: 1.3;
+        }
+        .td-title a:hover {
+            color: #00e5ff;
+            text-decoration: underline;
+        }
+        .td-price {
+            text-align: right;
+            font-family: monospace;
+            font-weight: 600;
+            color: #fff;
+        }
+        .td-sold {
+            text-align: center;
+            color: #8a94a6;
+            font-family: monospace;
+        }
+        .td-date {
+            text-align: center;
+            color: #8a94a6;
+            font-family: monospace;
+            font-size: 10px;
+        }
+
+        /* Tab 3: JSON */
+        .json-viewer {
+            background: #0b0d13;
+            border: 1px solid #2d3446;
+            border-radius: 8px;
+            padding: 12px;
+            font-family: monospace;
+            font-size: 11px;
+            color: #38ef7d;
+            flex: 1;
+            overflow: auto;
+            white-space: pre-wrap;
+        }
+
+        /* Footer */
+        footer {
+            background: #151720;
+            border-top: 1px solid #2d3446;
+            padding: 8px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 11px;
+            user-select: none;
+        }
+        .footer-left {
+            color: #8a94a6;
+            font-family: monospace;
+        }
+        .footer-count {
+            color: #00e5ff;
+            font-weight: bold;
+        }
+        .footer-actions {
+            display: flex;
+            gap: 8px;
+        }
+        .btn-action {
+            border: none;
+            color: white;
+            padding: 5px 12px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        .btn-excel { background: #107c41; }
+        .btn-json { background: #0078d4; }
+        .btn-csv { background: #d83b01; }
+        .btn-reload { background: #d13438; }
+
+        /* Toast */
+        #toast {
+            position: fixed;
+            bottom: 48px;
+            right: 16px;
+            background: #181b24;
+            border: 1px solid #00e5ff;
+            color: #fff;
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-size: 11px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+            transition: all 0.3s;
+            opacity: 0;
+            transform: translateY(20px);
+            pointer-events: none;
+            z-index: 999;
+        }
+        #toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- HEADER -->
+    <header>
+        <div class="logo-box">
+            <div class="logo-icon">S</div>
+            <div>
+                <span class="logo-title">Shopee Shop Watcher</span>
+                <span class="badge-step">BƯỚC 1 + BƯỚC 2 AUTO VIDEO</span>
+            </div>
+        </div>
+
+        <nav class="tabs">
+            <button class="tab-btn" id="btn-tab-settings">Cài đặt & Theo Dõi</button>
+            <button class="tab-btn active" id="btn-tab-list">Danh sách (<span id="header-count">0</span>)</button>
+            <button class="tab-btn" id="btn-tab-json">JSON</button>
+        </nav>
+    </header>
+
+    <!-- CONTENT -->
+    <main>
+        <!-- TAB 1: Cài đặt & Theo Dõi Shop -->
+        <div class="tab-content" id="view-settings">
+            <div class="settings-card">
+                <!-- Box 1: Danh Sách Shop Đang Theo Dõi -->
+                <div class="section-box">
+                    <div class="section-header">
+                        <span>🔔 SHOP ĐANG THEO DÕI TỰ ĐỘNG</span>
+                        <button id="btn-add-current-shop" style="background: #202532; border: 1px solid #00e5ff; color: #00e5ff; padding: 4px 10px; border-radius: 4px; font-size: 10px; font-weight: bold; cursor: pointer;">
+                            + Theo dõi Tab Hiện Tại
+                        </button>
+                    </div>
+                    <div class="shop-pill-list" id="watched-shops-container">
+                        <!-- Pills injected by JS -->
+                    </div>
+                    <div style="font-size: 10px; color: #8a94a6; margin-top: 4px;">
+                        📌 Tiện ích liên tục kiểm tra các shop này. <b>Chỉ cần shop vừa ra sản phẩm mới</b>, tiện ích sẽ lấy ngay link & ảnh và kích hoạt tạo video AI luôn!
+                    </div>
+                </div>
+
+                <!-- Box 2: Cấu hình Bước 2 (Gọi API Làm Video Luôn) -->
+                <div class="section-box">
+                    <div class="section-header">
+                        <span>🎬 BƯỚC 2: CẤU HÌNH GỌI API LÀM VIDEO REVIEW</span>
+                        <label style="font-size: 11px; color: #38ef7d; display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                            <input type="checkbox" id="check-auto-video" checked style="accent-color: #00e5ff;"> Tự làm video khi có SP mới
+                        </label>
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <select id="select-ai-provider" style="background: #1a1e29; border: 1px solid #2d3446; color: #fff; padding: 6px 10px; border-radius: 6px; font-size: 11px;">
+                            <option value="d-id">D-ID API (Khuyên dùng)</option>
+                            <option value="heygen">HeyGen API</option>
+                            <option value="local">Local Free (MoviePy + Edge-TTS)</option>
+                        </select>
+                        <input type="password" id="input-api-key" placeholder="Nhập API Key D-ID hoặc HeyGen..." style="flex: 1; background: #1a1e29; border: 1px solid #2d3446; color: #fff; padding: 6px 10px; border-radius: 6px; font-size: 11px;">
+                        <button id="btn-save-key" style="background: #202532; border: 1px solid #00e5ff; color: #00e5ff; padding: 6px 12px; border-radius: 6px; font-size: 11px; font-weight: bold; cursor: pointer;">Lưu Key</button>
+                    </div>
+                    <div style="font-size: 10px; color: #8a94a6;">
+                        💡 Điền key D-ID để tạo video người thật nói tiếng Việt. Nếu chưa có key, hệ thống sẽ tự động dùng engine lồng tiếng Việt miễn phí để luôn xuất ra video MP4!
+                    </div>
+                </div>
+
+                <!-- Nút Hành Động Quét Ngay -->
+                <button class="btn-scan-main" id="btn-trigger-scan">
+                    ⚡ KIỂM TRA SẢN PHẨM MỚI & LÀM VIDEO NGAY
+                </button>
+
+                <div style="display: flex; gap: 10px;">
+                    <button id="btn-open-shopee-tab" style="flex: 1; background: #202532; border: 1px solid #2d3446; color: #e1e7ec; padding: 7px; border-radius: 6px; font-size: 11px; cursor: pointer;">
+                        🌐 Mở trang Shopee.vn
+                    </button>
+                    <button id="btn-clear-data" style="flex: 1; background: #202532; border: 1px solid #d13438; color: #ff6b6b; padding: 7px; border-radius: 6px; font-size: 11px; cursor: pointer;">
+                        🗑️ Xóa sạch danh sách
+                    </button>
+                </div>
+
+                <!-- Log Box -->
+                <div class="log-box" id="ext-log">
+                    [Ready] Tiện ích Shop Watcher sẵn sàng. Đang theo dõi shop...
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 2: Danh sách Sản phẩm (Chuẩn 100% hình ảnh) -->
+        <div class="tab-content active" id="view-list">
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th class="col-shop">Tên Shop</th>
+                            <th class="col-img">Ảnh</th>
+                            <th class="col-title">Tên sản phẩm</th>
+                            <th class="col-price">Giá (đ)</th>
+                            <th class="col-sold">Lượt bán</th>
+                            <th class="col-date">Ngày Đăng</th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-body">
+                        <!-- Data rows injected by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- TAB 3: JSON -->
+        <div class="tab-content" id="view-json">
+            <pre class="json-viewer" id="json-viewer-content"></pre>
+        </div>
+    </main>
+
+    <!-- FOOTER: 4 NÚT HÀNH ĐỘNG DƯỚI ĐÁY -->
+    <footer>
+        <div class="footer-left">
+            Tổng cộng: <span class="footer-count" id="footer-count-val">0</span> sản phẩm hợp lệ
+        </div>
+        <div class="footer-actions">
+            <button class="btn-action btn-excel" id="btn-export-excel">Copy Excel</button>
+            <button class="btn-action btn-json" id="btn-export-json">Copy JSON</button>
+            <button class="btn-action btn-csv" id="btn-download-csv">Tải CSV</button>
+            <button class="btn-action btn-reload" id="btn-refresh-list">Reload</button>
+        </div>
+    </footer>
+
+    <!-- TOAST -->
+    <div id="toast">Thông báo</div>
+
+    <script src="popup.js"></script>
+</body>
+</html>

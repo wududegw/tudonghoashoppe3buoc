@@ -355,3 +355,36 @@ class DatabaseManager:
 
             cursor.execute("UPDATE products SET status = 'posted' WHERE id = ?", (product_id,))
             conn.commit()
+
+    def get_product_by_id(self, product_id: int) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            item = dict(row)
+            item["images"] = json.loads(item.get("images_json", "[]"))
+            return item
+
+    def update_affiliate_url(self, product_id: int, affiliate_url: str):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE products SET affiliate_url = ? WHERE id = ?", (affiliate_url, product_id))
+            conn.commit()
+
+    def is_product_in_queue(self, product_id: int) -> bool:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1 FROM video_queue WHERE product_id = ? AND status != 'error'", (product_id,))
+            return cursor.fetchone() is not None
+
+    def get_all_device_stats(self) -> List[Dict[str, Any]]:
+        today_str = date.today().isoformat()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM device_daily_stats WHERE stat_date = ? ORDER BY post_count DESC", (today_str,))
+            return [dict(r) for r in cursor.fetchall()]
+
+# Singleton Database instance for convenient access across modules
+db = DatabaseManager()

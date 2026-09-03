@@ -8,8 +8,8 @@ class ProductParser:
     def get_hd_image_url(cls, image_id: str) -> str:
         """Tạo link ảnh HD gốc từ hash image ID của Shopee."""
         if not image_id:
-            return "https://via.placeholder.com/150"
-        if image_id.startswith("http"):
+            return ""
+        if image_id.startswith("http://") or image_id.startswith("https://"):
             return image_id
         return f"{cls.IMAGE_CDN_BASE}{image_id}"
 
@@ -27,9 +27,9 @@ class ProductParser:
                 return None
 
             # Tên Shop
-            shop_name = item_basic.get("shop_name", "")
+            shop_name = item_basic.get("shop_name", "").strip()
             if not shop_name:
-                shop_location = item_basic.get("shop_location", "")
+                shop_location = item_basic.get("shop_location", "").strip()
                 shop_name = f"Shop Official #{shop_id}" if not shop_location else f"Shop {shop_location}"
 
             # Xử lý giá tiền (Shopee API thường lưu giá x100000)
@@ -46,31 +46,32 @@ class ProductParser:
             if price_before > 0 and price < price_before:
                 discount_percent = int(round((1 - price / price_before) * 100))
 
-            # Lượt bán & Đánh giá sao
-            historical_sold = item_basic.get("historical_sold", item_basic.get("sold", 0))
+            # Lượt bán & Đánh giá sao & Tồn kho
+            historical_sold = int(item_basic.get("historical_sold", item_basic.get("sold", 0)))
+            stock = int(item_basic.get("stock", item_basic.get("normal_stock", 100)))
+
             rating_star = 5.0
             rating_info = item_basic.get("item_rating", {})
             if isinstance(rating_info, dict):
-                rating_star = round(rating_info.get("rating_star", 5.0), 1)
+                rating_star = round(float(rating_info.get("rating_star", 5.0)), 1)
             elif isinstance(rating_info, (int, float)):
                 rating_star = round(float(rating_info), 1)
 
-            # Danh sách ảnh HD
+            # Danh sách ảnh HD chất lượng cao
             raw_images = item_basic.get("images", [])
             images = []
             for img in raw_images:
                 if img:
-                    images.append(cls.get_hd_image_url(img))
+                    hd_url = cls.get_hd_image_url(img)
+                    if hd_url and hd_url not in images:
+                        images.append(hd_url)
 
             # Cover image nếu chưa có trong list
             cover_image = item_basic.get("image")
             if cover_image:
                 cover_url = cls.get_hd_image_url(cover_image)
-                if cover_url not in images:
+                if cover_url and cover_url not in images:
                     images.insert(0, cover_url)
-
-            if not images:
-                images = ["https://via.placeholder.com/300"]
 
             # Ngày tạo / Ngày đăng
             ctime = item_basic.get("ctime", 0)
@@ -81,7 +82,7 @@ class ProductParser:
 
             # Link sản phẩm chuẩn
             product_url = f"https://shopee.vn/product/{shop_id}/{item_id}"
-            category = item_basic.get("cat_name", item_basic.get("category_name", "Chung"))
+            category = item_basic.get("cat_name", item_basic.get("category_name", "Gia dụng & Tiện ích"))
 
             return {
                 "item_id": item_id,
@@ -92,27 +93,37 @@ class ProductParser:
                 "price_formatted": f"{int(price):,}".replace(",", "."),
                 "price_before_discount": float(price_before),
                 "discount_percent": discount_percent,
-                "historical_sold": int(historical_sold),
-                "rating_star": float(rating_star),
+                "historical_sold": historical_sold,
+                "rating_star": rating_star,
+                "stock": stock,
                 "product_url": product_url,
                 "affiliate_url": "",
-                "thumb_image": images[0],
+                "thumb_image": images[0] if images else "",
                 "images": images,
                 "category": category,
                 "created_date": created_date
             }
-        except Exception as e:
+        except Exception:
             return None
 
     @classmethod
-    def filter_product(cls, product: Dict[str, Any], min_sold: int = 0, min_rating: float = 0.0, min_images: int = 1) -> bool:
-        """Kiểm tra sản phẩm có đạt chuẩn theo cấu hình lọc của người dùng."""
+    def filter_product(
+        cls,
+        product: Dict[str, Any],
+        min_sold: int = 0,
+        min_rating: float = 0.0,
+        min_images: int = 1,
+        require_stock: bool = True
+    ) -> bool:
+        """Kiểm tra sản phẩm có đạt chuẩn theo cấu hình lọc chất lượng."""
         if not product:
             return False
         if product.get("historical_sold", 0) < min_sold:
             return False
-        if product.get("rating_star", 0) < min_rating:
+        if product.get("rating_star", 0.0) < min_rating:
             return False
         if len(product.get("images", [])) < min_images:
+            return False
+        if require_stock and product.get("stock", 1) <= 0:
             return False
         return True

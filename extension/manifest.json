@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Shopee Product Crawler (Bước 1)",
+  "version": "1.0.0",
+  "description": "Tiện ích quét sản phẩm Shopee trực tiếp trên trình duyệt chỉ với 1 click!",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "alarms",
+    "notifications"
+  ],
+  "host_permissions": [
+    "https://*.shopee.vn/*",
+    "http://localhost:8888/*",
+    "http://127.0.0.1:8888/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.shopee.vn/*"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

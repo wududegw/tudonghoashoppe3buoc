@@ -1,124 +1,121 @@
 import os
-import time
-import requests
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
+from loguru import logger
 
-from config.settings import GEMINI_API_KEY, VIDEOS_DIR, BASE_DIR
+from config.settings import VIDEO_ENGINE_MODE, AI_VIDEO_PROVIDER, AI_VIDEO_API_KEY, VIDEOS_DIR, BASE_DIR
+from modules.video_engine.script_generator import ScriptGenerator
+from modules.video_engine.tts_generator import TTSGenerator
+from modules.video_engine.image_cleaner import ImageCleaner
+from modules.video_engine.video_composer import VideoComposer
+from modules.video_engine.ai_video_api import AIVideoAPIClient
 
 class AIVideoGenerator:
     """
-    BƯỚC 2 ĐƠN GIẢN HÓA:
-    1. Nhận ảnh sản phẩm + KOL ngành tương ứng
-    2. Tạo kịch bản review ngắn gọn
-    3. Gọi thẳng API làm Video AI -> Xuất ra file MP4
+    BỘ ĐIỀU PHỐI SẢN XUẤT VIDEO REVIEW BƯỚC 2:
+    - Mặc định sử dụng Local Engine (MoviePy + Edge-TTS) miễn phí, tốc độ cao, chất lượng 1080p
+    - Hỗ trợ Cloud API (D-ID) nếu người dùng cấu hình API Key
+    - Tự động chuyển đổi kịch bản -> Lồng tiếng -> Ghép video hoàn chỉnh
     """
 
     def __init__(self, output_dir: Path = VIDEOS_DIR):
         self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.api_key = os.getenv("AI_VIDEO_API_KEY", "")
-        self.provider = os.getenv("AI_VIDEO_PROVIDER", "d-id").lower()
+        self.engine_mode = VIDEO_ENGINE_MODE
+        self.provider = AI_VIDEO_PROVIDER
+        self.api_key = AI_VIDEO_API_KEY
 
-        if GEMINI_API_KEY:
-            try:
-                import google.generativeai as genai
-                genai.configure(api_key=GEMINI_API_KEY)
-                self.gemini = genai.GenerativeModel("gemini-1.5-flash")
-            except Exception:
-                self.gemini = None
-        else:
-            self.gemini = None
+        # Các module thành phần
+        self.script_gen = ScriptGenerator()
+        self.tts_gen = TTSGenerator()
+        self.cleaner = ImageCleaner()
+        self.composer = VideoComposer(output_dir=self.output_dir)
+        self.api_client = AIVideoAPIClient(provider=self.provider, api_key=self.api_key, output_dir=self.output_dir)
 
-    def generate_script(self, product_title: str, kol_name: str, kol_style: str) -> str:
-        """Tạo kịch bản review ngắn gọn (12-15 giây)."""
-        if self.gemini:
-            prompt = f"""
-Bạn là KOL {kol_name} ({kol_style}).
-Hãy viết 1 đoạn kịch bản review ngắn gọn cho sản phẩm: "{product_title}".
+    def generate_script(self, product_title: str, kol_name: str, kol_style: str, category: str = "") -> str:
+        """Tạo kịch bản review ngắn gọn (12-15 giây) qua Gemini AI."""
+        product_dummy = {"title": product_title, "category": category}
+        kol_dummy = {"name": kol_name, "style": kol_style}
+        data = self.script_gen.generate_script(product_dummy, kol_dummy)
+        return data.get("full_voice_text", "")
 
-Quy tắc:
-1. Không đọc giá tiền cụ thể.
-2. Nêu bật 1-2 công năng tiện ích nổi bật.
-3. Câu kết thúc bắt buộc: "Mọi người bấm vào giỏ hàng góc trái để xem nhé!"
-4. Trả về DUY NHẤT đoạn lời thoại tiếng Việt ngắn gọn để đọc (khoảng 35-40 từ), không thêm bất kỳ văn bản nào khác.
-"""
-            try:
-                res = self.gemini.generate_content(prompt)
-                return res.text.strip()
-            except Exception as e:
-                print(f"[!] Lỗi Gemini: {e}")
+    def generate_full_script_data(self, product: Dict[str, Any], kol_info: Dict[str, Any]) -> Dict[str, str]:
+        """Tạo trọn bộ dữ liệu kịch bản: Hook, Body, CTA, Caption, Hashtags."""
+        return self.script_gen.generate_script(product, kol_info)
 
-        # Kịch bản mặc định nếu không có API Key
-        return f"Món đồ này đang cực hot trên Shopee vì quá tiện lợi! Thiết kế xịn xò, dùng cực kỳ ưng ý. Mọi người bấm vào giỏ hàng góc trái để xem nhé!"
+    def create_video(
+        self,
+        item_id: str,
+        image_urls: List[str],
+        kol_info: Dict[str, Any],
+        script_text: str,
+        title: str = ""
+    ) -> Optional[str]:
+        """
+        Dựng video review hoàn chỉnh:
+        1. Ưu tiên Local Engine (MoviePy + Edge-TTS): Miễn phí, ổn định, đẹp mắt
+        2. Nếu cấu hình engine_mode == "api": gọi Cloud D-ID API, fallback về Local nếu lỗi
+        """
+        kol_id = kol_info.get("kol_id", "kol_01")
+        kol_name = kol_info.get("name", "KOL")
+        logger.info(f"🎬 [Video Engine] Khởi chạy sản xuất video cho item #{item_id} (KOL: {kol_name}, Chế độ: {self.engine_mode.upper()})...")
 
-    def create_video_via_api(self, item_id: str, product_image_url: str, kol_info: Dict[str, Any], script_text: str) -> Optional[str]:
-        """Gọi API làm Video AI từ ảnh KOL / Sản phẩm và kịch bản."""
-        output_file = str(self.output_dir / f"video_{item_id}.mp4")
-
-        print(f"[*] [API Video] Đang gọi {self.provider.upper()} tạo video review cho item #{item_id}...")
-
-        kol_avatar_url = kol_info.get("avatar_url", product_image_url)
-
-        if self.provider == "d-id":
-            return self._call_did(item_id, kol_avatar_url, script_text, kol_info.get("voice", "vi-VN-HoaiMyNeural"), output_file)
-
-        print(f"[*] Đang sinh video qua {self.provider} API...")
-        return None
-
-    def _call_did(self, item_id: str, source_url: str, text: str, voice: str, output_file: str) -> Optional[str]:
-        """Gọi API D-ID tạo video người nói."""
-        if not self.api_key:
-            print("[!] Chưa có AI_VIDEO_API_KEY trong .env. Vui lòng cấu hình key để render qua API.")
+        # 1. Tải và xử lý ảnh sản phẩm HD
+        clean_images = self.cleaner.download_and_clean_images(item_id=item_id, image_urls=image_urls, max_images=4)
+        if not clean_images:
+            logger.error(f"❌ Không có ảnh sản phẩm hợp lệ cho item #{item_id}")
             return None
 
-        url = "https://api.d-id.com/talks"
-        headers = {
-            "Authorization": f"Basic {self.api_key}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "source_url": source_url,
-            "script": {
-                "type": "text",
-                "subtitles": "false",
-                "provider": {
-                    "type": "microsoft",
-                    "voice_id": voice
-                },
-                "input": text
-            },
-            "config": {
-                "fluent": "true"
-            }
-        }
+        # 2. Xử lý theo Cloud AI Video API nếu có API Key hoặc bật chế độ API
+        if (self.engine_mode == "api" or self.api_key) and self.api_key.strip():
+            logger.info(f"🌐 Đang tạo video qua AI Video API ({self.provider.upper()})...")
+            avatar_path = kol_info.get("avatar_file", "")
+            if avatar_path and not os.path.isabs(avatar_path):
+                avatar_path = str(BASE_DIR / avatar_path)
+            if not os.path.exists(avatar_path):
+                avatar_path = kol_info.get("avatar_url", "")
 
+            video_file = self.api_client.generate_kol_review_video(
+                item_id=item_id,
+                kol_avatar_path_or_url=avatar_path,
+                script_text=script_text,
+                voice_id=kol_info.get("voice", "vi-VN-HoaiMyNeural")
+            )
+            if video_file and os.path.exists(video_file):
+                logger.success(f"🎉 Đã hoàn tất video AI qua API: {video_file}")
+                return video_file
+            logger.warning("⚠️ AI Video API gặp sự cố hoặc chưa có credit. Tự động chuyển tiếp sang Local Engine để luôn có video...")
+
+        # 3. Dựng video bằng Local Engine (Edge-TTS + MoviePy)
         try:
-            resp = requests.post(url, json=payload, headers=headers, timeout=20)
-            if resp.status_code not in [200, 201]:
-                print(f"[!] D-ID API error: {resp.text}")
+            # Sinh giọng đọc tiếng Việt theo phong cách của KOL
+            voice_file = self.tts_gen.generate_voice(item_id=item_id, text=script_text, kol_config=kol_info)
+            if not voice_file or not os.path.exists(voice_file):
+                logger.error("❌ Không sinh được file âm thanh thuyết minh.")
                 return None
 
-            talk_id = resp.json().get("id")
-            print(f"[*] Đang render trên server D-ID (ID: {talk_id})...")
+            # Render video 9:16 chuẩn nét
+            output_mp4 = self.composer.create_video_from_images(
+                item_id=item_id,
+                image_paths=clean_images,
+                audio_path=voice_file,
+                title=title,
+                kol_info=kol_info,
+                hook_text=kol_info.get("hook_prefix", "")
+            )
 
-            for _ in range(30):
-                time.sleep(4)
-                status_resp = requests.get(f"{url}/{talk_id}", headers=headers)
-                if status_resp.status_code == 200:
-                    data = status_resp.json()
-                    if data.get("status") == "done":
-                        video_url = data.get("result_url")
-                        vid_bytes = requests.get(video_url).content
-                        with open(output_file, "wb") as f:
-                            f.write(vid_bytes)
-                        print(f"[+] Hoàn thành video review: {output_file}")
-                        return output_file
-                    elif data.get("status") == "error":
-                        print("[!] Render video API thất bại.")
-                        return None
+            return output_mp4 if output_mp4 and os.path.exists(output_mp4) else None
+
         except Exception as e:
-            print(f"[!] Lỗi gọi API: {e}")
+            logger.error(f"❌ Lỗi quy trình dựng video cục bộ: {e}")
             return None
 
-        return None
+    def create_video_via_api(self, item_id: str, product_image_url: str, kol_info: Dict[str, Any], script_text: str) -> Optional[str]:
+        """Tương thích ngược cho các lời gọi cũ."""
+        image_urls = [product_image_url] if product_image_url else []
+        return self.create_video(
+            item_id=item_id,
+            image_urls=image_urls,
+            kol_info=kol_info,
+            script_text=script_text
+        )
